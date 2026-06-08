@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>МегаМарт — Симулятор Супермаркета</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Noto+Sans:wght@400;500;700&display=swap');
+
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1f2937;
+    --border: #30363d;
+    --accent: #f59e0b;
+    --accent2: #10b981;
+    --danger: #ef4444;
+    --info: #3b82f6;
+    --text: #e6edf3;
+    --text2: #8b949e;
+    --red: #ef4444;
+    --green: #10b981;
+    --gold: #f59e0b;
+    --panel-w: 340px;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; font-family:'Noto Sans', sans-serif; background:var(--bg); color:var(--text); }
+
+  /* ===================== LAYOUT ===================== */
+  #app { display:flex; width:100vw; height:100vh; position:relative; }
+  #canvas-container { flex:1; position:relative; }
+  canvas { display:block; width:100%; height:100%; }
+
+  /* Crosshair */
+  #crosshair { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); pointer-events:none; z-index:10; opacity:0.7; }
+  #crosshair::before, #crosshair::after { content:''; position:absolute; background:rgba(255,255,255,0.8); }
+  #crosshair::before { width:16px; height:2px; top:-1px; left:-8px; }
+  #crosshair::after { width:2px; height:16px; top:-8px; left:-1px; }
+
+  /* Click to play */
+  #click-overlay { position:absolute; inset:0; background:rgba(0,0,0,0.6); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:100; cursor:pointer; transition:opacity 0.3s; }
+  #click-overlay.hidden { display:none; }
+  #click-overlay h2 { font-family:'Rajdhani', sans-serif; font-size:2.5rem; color:var(--gold); margin-bottom:0.5rem; }
+  #click-overlay p { color:var(--text2); font-size:1.1rem; }
+  #click-overlay .tip { margin-top:1rem; font-size:0.85rem; color:var(--text2); opacity:0.7; }
+
+  /* ===================== HUD (top bar) ===================== */
+  #hud { position:absolute; top:0; left:0; right:0; height:52px; background:linear-gradient(to bottom, rgba(13,17,23,0.97), rgba(13,17,23,0.8)); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 16px; gap:16px; z-index:50; pointer-events:none; }
+  .hud-item { display:flex; align-items:center; gap:6px; font-family:'Rajdhani', sans-serif; font-size:0.95rem; }
+  .hud-item .label { color:var(--text2); font-size:0.75rem; }
+  .hud-item .val { font-size:1.05rem; font-weight:700; }
+  .hud-item .val.money { color:var(--gold); }
+  .hud-item .val.rep { color:var(--accent2); }
+  .hud-item .val.danger { color:var(--danger); }
+  .hud-sep { width:1px; height:30px; background:var(--border); }
+  .hud-clock { font-family:'Rajdhani', sans-serif; font-size:1.3rem; font-weight:700; color:var(--accent); min-width:70px; text-align:center; }
+  .hud-level { background:var(--accent); color:#000; font-weight:700; padding:2px 8px; border-radius:4px; font-size:0.8rem; font-family:'Rajdhani', sans-serif; }
+  .xp-bar { width:80px; height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+  .xp-fill { height:100%; background:linear-gradient(90deg, var(--accent), #f97316); transition:width 0.4s; }
+
+  /* ===================== SIDE PANEL ===================== */
+  #side-panel { width:var(--panel-w); height:100%; background:var(--surface); border-left:1px solid var(--border); display:flex; flex-direction:column; z-index:40; overflow:hidden; }
+
+  /* Tab bar */
+  .tab-bar { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
+  .tab-btn { flex:1; padding:10px 4px; font-size:0.7rem; font-family:'Rajdhani', sans-serif; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; background:none; border:none; color:var(--text2); cursor:pointer; border-bottom:2px solid transparent; transition:all 0.2s; }
+  .tab-btn.active { color:var(--accent); border-bottom-color:var(--accent); }
+  .tab-btn:hover { color:var(--text); background:var(--surface2); }
+
+  .tab-content { display:none; flex:1; overflow-y:auto; padding:12px; }
+  .tab-content.active { display:block; }
+  .tab-content::-webkit-scrollbar { width:4px; }
+  .tab-content::-webkit-scrollbar-track { background:var(--surface); }
+  .tab-content::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+  /* ===================== COMPONENTS ===================== */
+  .section-title { font-family:'Rajdhani', sans-serif; font-size:0.75rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--text2); margin-bottom:8px; padding-bottom:4px; border-bottom:1px solid var(--border); }
+
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:6px 12px; border-radius:6px; border:none; cursor:pointer; font-size:0.82rem; font-weight:600; font-family:'Noto Sans', sans-serif; transition:all 0.15s; white-space:nowrap; }
+  .btn-primary { background:var(--accent); color:#000; }
+  .btn-primary:hover { background:#fbbf24; }
+  .btn-success { background:var(--accent2); color:#000; }
+  .btn-success:hover { background:#34d399; }
+  .btn-danger { background:var(--danger); color:#fff; }
+  .btn-danger:hover { background:#f87171; }
+  .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
+  .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+  .btn-sm { padding:4px 8px; font-size:0.75rem; }
+  .btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+  .card { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px; margin-bottom:8px; }
+  .card:hover { border-color:var(--border); }
+
+  /* Product row */
+  .product-row { display:grid; grid-template-columns:1.5rem 1fr auto; gap:6px; align-items:center; padding:6px 8px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; margin-bottom:4px; }
+  .product-row:hover { border-color:#4b5563; }
+  .product-emoji { font-size:1.1rem; text-align:center; }
+  .product-info { min-width:0; }
+  .product-name { font-size:0.82rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .product-meta { font-size:0.7rem; color:var(--text2); display:flex; gap:8px; }
+  .product-actions { display:flex; gap:4px; }
+  .stock-badge { display:inline-block; padding:2px 6px; border-radius:10px; font-size:0.68rem; font-weight:600; }
+  .stock-ok { background:rgba(16,185,129,0.15); color:var(--green); }
+  .stock-low { background:rgba(245,158,11,0.15); color:var(--gold); }
+  .stock-empty { background:rgba(239,68,68,0.15); color:var(--red); }
+
+  /* Staff row */
+  .staff-row { display:flex; align-items:center; gap:8px; padding:8px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; margin-bottom:4px; }
+  .staff-avatar { font-size:1.4rem; }
+  .staff-info { flex:1; min-width:0; }
+  .staff-name { font-size:0.82rem; font-weight:600; }
+  .staff-type { font-size:0.7rem; color:var(--text2); }
+  .mood-bar { width:50px; height:4px; background:var(--border); border-radius:2px; overflow:hidden; margin-top:3px; }
+  .mood-fill { height:100%; transition:width 0.4s; }
+
+  /* Upgrade card */
+  .upgrade-card { display:grid; grid-template-columns:2rem 1fr auto; gap:8px; align-items:center; padding:8px 10px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; margin-bottom:6px; }
+  .upgrade-card.owned { border-color:var(--accent2); background:rgba(16,185,129,0.05); }
+  .upgrade-card.locked { opacity:0.5; }
+  .upgrade-icon { font-size:1.3rem; text-align:center; }
+  .upgrade-name { font-size:0.82rem; font-weight:600; }
+  .upgrade-effect { font-size:0.7rem; color:var(--text2); }
+  .upgrade-cost { font-size:0.82rem; color:var(--gold); font-weight:700; }
+
+  /* Stats */
+  .stat-row { display:flex; justify-content:space-between; align-items:center; padding:5px 0; border-bottom:1px solid var(--border); font-size:0.82rem; }
+  .stat-row:last-child { border-bottom:none; }
+  .stat-label { color:var(--text2); }
+  .stat-val { font-weight:600; }
+  .stat-val.positive { color:var(--green); }
+  .stat-val.negative { color:var(--red); }
+
+  /* Progress bar */
+  .progress-bar { width:100%; height:8px; background:var(--border); border-radius:4px; overflow:hidden; margin:4px 0; }
+  .progress-fill { height:100%; border-radius:4px; transition:width 0.4s; }
+  .progress-fill.gold { background:linear-gradient(90deg, var(--gold), #f97316); }
+  .progress-fill.green { background:linear-gradient(90deg, var(--accent2), #34d399); }
+  .progress-fill.blue { background:linear-gradient(90deg, var(--info), #60a5fa); }
+  .progress-fill.red { background:linear-gradient(90deg, var(--danger), #f87171); }
+
+  /* Number input */
+  .qty-input { width:55px; padding:4px 6px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; font-size:0.8rem; text-align:center; }
+  .price-input { width:65px; padding:4px 6px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px; font-size:0.8rem; }
+
+  /* Notifications */
+  #notif-container { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); max-width:500px; width:90%; pointer-events:none; z-index:200; display:flex; flex-direction:column; gap:6px; }
+  .notif { padding:8px 14px; border-radius:8px; font-size:0.82rem; font-weight:500; animation:notifIn 0.3s ease; display:flex; align-items:center; gap:8px; backdrop-filter:blur(10px); border-left:3px solid; }
+  .notif.info { background:rgba(59,130,246,0.2); border-color:var(--info); }
+  .notif.success { background:rgba(16,185,129,0.2); border-color:var(--green); }
+  .notif.error { background:rgba(239,68,68,0.2); border-color:var(--red); }
+  .notif.fade-out { animation:notifOut 0.4s ease forwards; }
+  @keyframes notifIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes notifOut { to { opacity:0; transform:translateY(-5px); } }
+
+  /* Time advance button */
+  #time-btn { position:absolute; bottom:20px; right:calc(var(--panel-w) + 20px); z-index:50; }
+  #time-btn button { padding:10px 20px; font-family:'Rajdhani', sans-serif; font-size:1rem; font-weight:700; background:linear-gradient(135deg, #7c3aed, #4f46e5); color:#fff; border:none; border-radius:8px; cursor:pointer; box-shadow:0 4px 15px rgba(124,58,237,0.4); transition:all 0.2s; }
+  #time-btn button:hover { transform:translateY(-1px); box-shadow:0 6px 20px rgba(124,58,237,0.5); }
+  #time-btn button:active { transform:translateY(0); }
+
+  /* Day summary modal */
+  #day-modal { position:absolute; inset:0; background:rgba(0,0,0,0.75); z-index:300; display:none; align-items:center; justify-content:center; }
+  #day-modal.show { display:flex; }
+  .modal-box { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:24px; max-width:420px; width:90%; }
+  .modal-title { font-family:'Rajdhani', sans-serif; font-size:1.5rem; font-weight:700; color:var(--accent); margin-bottom:16px; }
+
+  /* Section label */
+  .sec { margin-bottom:14px; }
+  .sec .section-title { margin-bottom:6px; }
+
+  /* Inline flex */
+  .row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .row-between { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+
+  /* Marketing input */
+  .range-input { width:100%; accent-color:var(--accent); margin:6px 0; }
+
+  /* Skill grid */
+  .skill-grid { display:flex; flex-direction:column; gap:6px; }
+  .skill-item { display:grid; grid-template-columns:1fr 40px; gap:8px; align-items:center; }
+  .skill-name { font-size:0.78rem; color:var(--text2); }
+  .skill-pct { font-size:0.78rem; font-weight:700; text-align:right; }
+
+  /* ===================== SCROLLBAR ===================== */
+  * { scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+
+  /* Responsive panels */
+  @media (max-width:900px) {
+    :root { --panel-w: 280px; }
+    .tab-btn { font-size:0.6rem; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- 3D Canvas -->
+  <div id="canvas-container">
+    <canvas id="game-canvas"></canvas>
+    <div id="crosshair"></div>
+
+    <!-- Click to play overlay -->
+    <div id="click-overlay">
+      <div style="font-size:4rem;margin-bottom:1rem">🏪</div>
+      <h2>МегаМарт</h2>
+      <p>Симулятор Супермаркета</p>
+      <p style="margin-top:1rem;color:var(--accent);font-family:Rajdhani,sans-serif;font-size:1.3rem">Нажмите для начала игры</p>
+      <p class="tip">WASD — движение · Мышь — камера · ESC — выход из режима</p>
+    </div>
+
+    <!-- HUD Top Bar -->
+    <div id="hud">
+      <div class="hud-item">
+        <span style="font-size:1.1rem">💰</span>
+        <div>
+          <div class="label">Баланс</div>
+          <div class="val money" id="hud-money">$100.00</div>
+        </div>
+      </div>
+      <div class="hud-sep"></div>
+      <div class="hud-item">
+        <span style="font-size:1rem">⭐</span>
+        <div>
+          <div class="label">Репутация</div>
+          <div class="val rep" id="hud-rep">50%</div>
+        </div>
+      </div>
+      <div class="hud-sep"></div>
+      <div class="hud-item">
+        <span style="font-size:1rem">📅</span>
+        <div>
+          <div class="label">День</div>
+          <div class="val" id="hud-day">1</div>
+        </div>
+      </div>
+      <div class="hud-sep"></div>
+      <div class="hud-clock" id="hud-clock">08:00</div>
+      <div class="hud-sep"></div>
+      <div class="hud-item">
+        <div>
+          <div class="row">
+            <span class="hud-level" id="hud-level">LVL 1</span>
+            <div class="xp-bar"><div class="xp-fill" id="xp-fill" style="width:0%"></div></div>
+          </div>
+          <div class="label">XP до следующего уровня</div>
+        </div>
+      </div>
+      <div class="hud-sep"></div>
+      <div class="hud-item">
+        <span style="font-size:1rem">🏪</span>
+        <div>
+          <div class="label">Магазины</div>
+          <div class="val" id="hud-stores">1</div>
+        </div>
+      </div>
+      <div class="hud-sep"></div>
+      <div class="hud-item">
+        <span style="font-size:1rem">🧹</span>
+        <div>
+          <div class="label">Чистота</div>
+          <div class="val" id="hud-clean">100%</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Time advance -->
+    <div id="time-btn">
+      <button onclick="advanceTime()">⏩ Следующий час</button>
+    </div>
+
+    <!-- Notifications -->
+    <div id="notif-container"></div>
+  </div>
+
+  <!-- Side Panel -->
+  <div id="side-panel">
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab('shop')">🛒 Магазин</button>
+      <button class="tab-btn" onclick="switchTab('staff')">👥 Персонал</button>
+      <button class="tab-btn" onclick="switchTab('upgrades')">🔧 Апгрейды</button>
+      <button class="tab-btn" onclick="switchTab('finance')">💳 Финансы</button>
+      <button class="tab-btn" onclick="switchTab('stats')">📊 Статистика</button>
+    </div>
+
+    <!-- ===== SHOP TAB ===== -->
+    <div id="tab-shop" class="tab-content active">
+      <div class="sec">
+        <div class="section-title">Заказ товаров у поставщика</div>
+        <div id="product-list"></div>
+      </div>
+    </div>
+
+    <!-- ===== STAFF TAB ===== -->
+    <div id="tab-staff" class="tab-content">
+      <div class="sec">
+        <div class="section-title">Нанять персонал</div>
+        <div id="hire-list"></div>
+      </div>
+      <div class="sec">
+        <div class="section-title">Текущий персонал</div>
+        <div id="staff-list"></div>
+      </div>
+    </div>
+
+    <!-- ===== UPGRADES TAB ===== -->
+    <div id="tab-upgrades" class="tab-content">
+      <div class="sec">
+        <div class="section-title">Улучшения магазина</div>
+        <div id="upgrades-list"></div>
+      </div>
+      <div class="sec">
+        <div class="section-title">Маркетинг</div>
+        <div class="card">
+          <div class="row-between">
+            <span style="font-size:0.82rem">Рекламный бюджет в день:</span>
+            <span style="color:var(--gold);font-weight:700" id="ad-budget-display">$0</span>
+          </div>
+          <input type="range" class="range-input" id="ad-budget" min="0" max="500" step="10" value="0" oninput="updateMarketing()">
+          <div style="font-size:0.72rem;color:var(--text2);margin-top:4px">Каждые $10 привлекают +1 клиента в час</div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn btn-outline btn-sm" onclick="toggleLoyalty()">
+              <span id="loyalty-status">💳 Программа лояльности: Выкл</span>
+            </button>
+          </div>
+          <div style="font-size:0.72rem;color:var(--text2);margin-top:4px">Стоимость: $100/день. +15% постоянных клиентов</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== FINANCE TAB ===== -->
+    <div id="tab-finance" class="tab-content">
+      <div class="sec">
+        <div class="section-title">Финансовый обзор</div>
+        <div class="card" id="finance-overview"></div>
+      </div>
+      <div class="sec">
+        <div class="section-title">Банковский кредит</div>
+        <div class="card">
+          <div class="stat-row"><span class="stat-label">Долг</span><span class="stat-val negative" id="loan-amount">$0</span></div>
+          <div class="stat-row"><span class="stat-label">Ставка</span><span class="stat-val">10% годовых</span></div>
+          <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-outline btn-sm" onclick="takeLoan(500)">Взять $500</button>
+            <button class="btn btn-outline btn-sm" onclick="takeLoan(2000)">Взять $2000</button>
+            <button class="btn btn-outline btn-sm" onclick="takeLoan(10000)">Взять $10000</button>
+            <button class="btn btn-danger btn-sm" onclick="repayLoan()">Погасить $1000</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== STATS TAB ===== -->
+    <div id="tab-stats" class="tab-content">
+      <div class="sec">
+        <div class="section-title">Общая статистика</div>
+        <div class="card" id="stats-panel"></div>
+      </div>
+      <div class="sec">
+        <div class="section-title">Навыки предпринимателя</div>
+        <div class="skill-grid" id="skills-panel"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Day summary modal -->
+  <div id="day-modal">
+    <div class="modal-box">
+      <div class="modal-title">🌅 Итоги дня <span id="modal-day"></span></div>
+      <div id="modal-content"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="closeDayModal()">Продолжить →</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="/js/gamestate.js"></script>
+<script src="/js/renderer.js"></script>
+<script>
+// ================================================================
+// MAIN GAME CONTROLLER
+// ================================================================
+let gs, renderer3d;
+let hourTimer = null;
+let dayStartRevenue = 0;
+let dayStartExpenses = 0;
+let dayCustomers = 0;
+
+// -------- INIT --------
+async function init() {
+  // Load saved game
+  let savedData = null;
+  try {
+    const resp = await fetch('/api/save');
+    const d = await resp.json();
+    if (d && d.day) savedData = d;
+  } catch(e) {}
+
+  gs = new GameState(savedData);
+  setupCanvas();
+  renderAll();
+
+  // Auto-save every 2 min
+  setInterval(saveGame, 120000);
+
+  // Click overlay hide when pointer locked
+  const overlay = document.getElementById('click-overlay');
+  document.addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement) {
+      overlay.classList.add('hidden');
+    } else {
+      overlay.classList.remove('hidden');
+    }
+  });
+}
+
+function setupCanvas() {
+  const canvas = document.getElementById('game-canvas');
+  canvas.width = canvas.clientWidth;
+  canvas.height = canvas.clientHeight;
+  renderer3d = new SupermarketRenderer(canvas);
+
+  window.addEventListener('resize', () => {
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    renderer3d.onResize(canvas.clientWidth, canvas.clientHeight);
+  });
+
+  // Initial shelf display
+  renderer3d.updateShelfDisplay(gs.inventory);
+  renderer3d.updateDayNight(gs.hour);
+}
+
+// -------- TIME --------
+function advanceTime() {
+  const prevDay = gs.day;
+  const result = gs.advanceHour();
+  dayCustomers += result.count;
+
+  // Spawn some visual customers
+  if (result.count > 0 && renderer3d) {
+    const n = Math.min(result.count, 4);
+    for (let i = 0; i < n; i++) {
+      setTimeout(() => renderer3d.spawnCustomer(), i * 300);
+    }
+  }
+
+  // Update 3D day/night
+  renderer3d.updateDayNight(gs.hour);
+
+  // Day changed
+  if (gs.day > prevDay) {
+    showDaySummary(prevDay, result);
+    renderer3d.updateShelfDisplay(gs.inventory);
+  }
+
+  updateHUD();
+  renderNotifications();
+  renderShopTab();
+  renderFinanceTab();
+}
+
+function showDaySummary(dayNum, lastResult) {
+  const stats = gs.stats;
+  const expenses = gs.rent + gs.utilities + gs.staff.reduce((s,st) => s+st.salary, 0) + gs.marketingBudget;
+
+  document.getElementById('modal-day').textContent = dayNum;
+  document.getElementById('modal-content').innerHTML = `
+    <div class="stat-row"><span class="stat-label">👥 Посетители</span><span class="stat-val">${dayCustomers}</span></div>
+    <div class="stat-row"><span class="stat-label">💰 Выручка</span><span class="stat-val positive">$${lastResult.totalRevenue?.toFixed(2) || '0.00'}</span></div>
+    <div class="stat-row"><span class="stat-label">📦 Продано товаров</span><span class="stat-val">${lastResult.totalSold || 0}</span></div>
+    <div class="stat-row"><span class="stat-label">🧹 Чистота</span><span class="stat-val">${gs.cleanlinessLevel.toFixed(0)}%</span></div>
+    <div class="stat-row"><span class="stat-label">⭐ Репутация</span><span class="stat-val ${gs.reputation >= 50 ? 'positive' : 'negative'}">${gs.reputation.toFixed(1)}/100</span></div>
+    <div class="stat-row"><span class="stat-label">📉 Расходы дня</span><span class="stat-val negative">$${expenses.toFixed(2)}</span></div>
+    <div class="stat-row"><span class="stat-label">💵 Баланс</span><span class="stat-val ${gs.money >= 0 ? 'positive' : 'negative'}">$${gs.money.toFixed(2)}</span></div>
+    ${gs.loanAmount > 0 ? `<div class="stat-row"><span class="stat-label">🏦 Долг</span><span class="stat-val negative">$${gs.loanAmount.toFixed(2)}</span></div>` : ''}
+  `;
+  document.getElementById('day-modal').classList.add('show');
+  dayCustomers = 0;
+}
+
+function closeDayModal() {
+  document.getElementById('day-modal').classList.remove('show');
+}
+
+// -------- TABS --------
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById(`tab-${name}`).classList.add('active');
+  event.currentTarget.classList.add('active');
+  renderAll();
+}
+
+function renderAll() {
+  updateHUD();
+  renderShopTab();
+  renderStaffTab();
+  renderUpgradesTab();
+  renderFinanceTab();
+  renderStatsTab();
+}
+
+// -------- HUD --------
+function updateHUD() {
+  document.getElementById('hud-money').textContent = `$${gs.money.toFixed(2)}`;
+  document.getElementById('hud-money').className = `val money${gs.money < 0 ? ' danger' : ''}`;
+  document.getElementById('hud-rep').textContent = `${gs.reputation.toFixed(0)}%`;
+  document.getElementById('hud-day').textContent = gs.day;
+  document.getElementById('hud-clock').textContent = `${String(gs.hour).padStart(2,'0')}:00`;
+  document.getElementById('hud-level').textContent = `LVL ${gs.level}`;
+  document.getElementById('hud-stores').textContent = gs.chainStores;
+  document.getElementById('hud-clean').textContent = `${gs.cleanlinessLevel.toFixed(0)}%`;
+  const xpPct = (gs.xp / (gs.level * 500)) * 100;
+  document.getElementById('xp-fill').style.width = `${xpPct}%`;
+}
+
+// -------- SHOP TAB --------
+function renderShopTab() {
+  const el = document.getElementById('product-list');
+  el.innerHTML = PRODUCTS.map(p => {
+    const inv = gs.inventory[p.id];
+    const buyPrice = (p.buyPrice * gs.inflation).toFixed(2);
+    const stockClass = inv.shelfStock > 5 ? 'stock-ok' : inv.shelfStock > 0 ? 'stock-low' : 'stock-empty';
+    const stockLabel = inv.shelfStock > 5 ? 'Есть' : inv.shelfStock > 0 ? 'Мало' : 'Пусто';
+
+    return `
+    <div class="product-row">
+      <span class="product-emoji">${p.emoji}</span>
+      <div class="product-info">
+        <div class="product-name">${p.name}</div>
+        <div class="product-meta">
+          <span>Склад: <b>${inv.stock}</b></span>
+          <span>Полка: <b>${inv.shelfStock}</b></span>
+          <span class="stock-badge ${stockClass}">${stockLabel}</span>
+        </div>
+        <div class="product-meta" style="margin-top:3px">
+          <span>Закупка: <b style="color:var(--danger)">$${buyPrice}</b></span>
+          <span>Продажа: <input type="number" class="price-input" value="${inv.price}" min="0.1" step="0.1" onchange="gs.setPrice('${p.id}', +this.value); renderStatsTab();" style="width:55px"></span>
+        </div>
+      </div>
+      <div class="product-actions" style="flex-direction:column;gap:3px">
+        <div style="display:flex;gap:3px">
+          <input type="number" class="qty-input" id="qty-${p.id}" value="10" min="1" max="500">
+          <button class="btn btn-outline btn-sm" onclick="buyProduct('${p.id}')">📦 Купить</button>
+        </div>
+        <button class="btn btn-success btn-sm" onclick="stockShelf('${p.id}')" ${inv.stock <= 0 ? 'disabled' : ''}>🗄️ На полку (${Math.min(inv.stock, 10)})</button>
+      </div>
+    </div>
+    `;
+  }).join('');
+}
+
+function buyProduct(id) {
+  const qty = parseInt(document.getElementById(`qty-${id}`)?.value || 10);
+  gs.buyStock(id, qty);
+  renderShopTab();
+  renderNotifications();
+  updateHUD();
+}
+
+function stockShelf(id) {
+  const inv = gs.inventory[id];
+  const qty = Math.min(inv.stock, 10);
+  gs.stockShelf(id, qty);
+  renderer3d.updateShelfDisplay(gs.inventory);
+  renderShopTab();
+}
+
+// -------- STAFF TAB --------
+function renderStaffTab() {
+  const hireEl = document.getElementById('hire-list');
+  hireEl.innerHTML = Object.entries(STAFF_TYPES).map(([type, info]) => `
+    <div class="row-between" style="padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;margin-bottom:4px">
+      <span>${info.emoji} <b>${info.name}</b></span>
+      <span style="color:var(--text2);font-size:0.75rem">$${info.salary}/день</span>
+      <button class="btn btn-outline btn-sm" onclick="hireStaff('${type}')">Нанять</button>
+    </div>
+  `).join('');
+
+  const staffEl = document.getElementById('staff-list');
+  if (gs.staff.length === 0) {
+    staffEl.innerHTML = '<div style="color:var(--text2);font-size:0.82rem;text-align:center;padding:12px">Нет сотрудников. Наймите первого!</div>';
+    return;
+  }
+  staffEl.innerHTML = gs.staff.map((s, idx) => {
+    const type = STAFF_TYPES[s.type];
+    const moodColor = s.mood > 70 ? 'green' : s.mood > 40 ? 'gold' : 'red';
+    return `
+    <div class="staff-row">
+      <span class="staff-avatar">${type.emoji}</span>
+      <div class="staff-info">
+        <div class="staff-name">${s.name}</div>
+        <div class="staff-type">${type.name} · Ур.${s.level} · $${s.salary}/д</div>
+        <div class="row" style="margin-top:3px;gap:4px">
+          <div class="mood-bar"><div class="mood-fill" style="width:${s.mood}%;background:${moodColor === 'green' ? 'var(--green)' : moodColor === 'gold' ? 'var(--gold)' : 'var(--red)'}"></div></div>
+          <span style="font-size:0.68rem;color:var(--text2)">${s.mood.toFixed(0)}%</span>
+          <span style="font-size:0.68rem;color:var(--text2)">Эфф: ${s.efficiency.toFixed(0)}%</span>
+        </div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="fireStaff(${idx})">Уволить</button>
+    </div>
+    `;
+  }).join('');
+}
+
+function hireStaff(type) {
+  gs.hireStaff(type);
+  renderStaffTab();
+  renderNotifications();
+  updateHUD();
+}
+
+function fireStaff(idx) {
+  const s = gs.staff.splice(idx, 1)[0];
+  gs.addNotification(`👋 ${s.name} уволен`, 'info');
+  renderStaffTab();
+  renderNotifications();
+}
+
+// -------- UPGRADES TAB --------
+function renderUpgradesTab() {
+  const el = document.getElementById('upgrades-list');
+  el.innerHTML = UPGRADES.map(u => {
+    const owned = gs.upgrades.includes(u.id);
+    const locked = gs.level < u.level;
+    return `
+    <div class="upgrade-card ${owned ? 'owned' : locked ? 'locked' : ''}">
+      <span class="upgrade-icon">${u.icon}</span>
+      <div>
+        <div class="upgrade-name">${u.name} ${owned ? '✅' : locked ? `🔒 Ур.${u.level}` : ''}</div>
+        <div class="upgrade-effect">${u.effect}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="upgrade-cost">$${u.cost.toLocaleString()}</div>
+        ${!owned ? `<button class="btn btn-outline btn-sm" style="margin-top:4px" onclick="buyUpgrade('${u.id}')" ${locked ? 'disabled' : ''}>Купить</button>` : ''}
+      </div>
+    </div>
+    `;
+  }).join('');
+}
+
+function buyUpgrade(id) {
+  gs.buyUpgrade(id);
+  renderUpgradesTab();
+  renderNotifications();
+  updateHUD();
+}
+
+function updateMarketing() {
+  const budget = parseInt(document.getElementById('ad-budget').value);
+  gs.marketingBudget = budget;
+  gs.advertLevel = Math.floor(budget / 10);
+  document.getElementById('ad-budget-display').textContent = `$${budget}`;
+}
+
+function toggleLoyalty() {
+  gs.loyaltyProgram = !gs.loyaltyProgram;
+  if (gs.loyaltyProgram) {
+    gs.marketingBudget += 100;
+    gs.reputation = Math.min(100, gs.reputation + 5);
+  } else {
+    gs.marketingBudget = Math.max(0, gs.marketingBudget - 100);
+  }
+  document.getElementById('loyalty-status').textContent = `💳 Программа лояльности: ${gs.loyaltyProgram ? 'Вкл ✅' : 'Выкл'}`;
+  renderNotifications();
+}
+
+// -------- FINANCE TAB --------
+function renderFinanceTab() {
+  const dailyIncome = (gs.stats.totalRevenue / Math.max(gs.stats.daysPlayed, 1));
+  const staffCost = gs.staff.reduce((s, st) => s + st.salary, 0);
+  const dailyExp = staffCost + gs.rent + gs.utilities + gs.marketingBudget;
+  const profit = dailyIncome - dailyExp;
+
+  document.getElementById('finance-overview').innerHTML = `
+    <div class="stat-row"><span class="stat-label">💵 Текущий баланс</span><span class="stat-val ${gs.money >= 0 ? 'positive' : 'negative'}">$${gs.money.toFixed(2)}</span></div>
+    <div class="stat-row"><span class="stat-label">📈 Средний доход/день</span><span class="stat-val positive">$${dailyIncome.toFixed(2)}</span></div>
+    <div class="stat-row"><span class="stat-label">📉 Расходы/день</span><span class="stat-val negative">$${dailyExp.toFixed(2)}</span></div>
+    <div class="stat-row"><span class="stat-label">💰 Прибыль/день</span><span class="stat-val ${profit >= 0 ? 'positive' : 'negative'}">$${profit.toFixed(2)}</span></div>
+    <div class="stat-row"><span class="stat-label">🏠 Аренда</span><span class="stat-val negative">$${gs.rent}/день</span></div>
+    <div class="stat-row"><span class="stat-label">⚡ Коммуналка</span><span class="stat-val negative">$${gs.utilities}/день</span></div>
+    <div class="stat-row"><span class="stat-label">👥 ФОТ</span><span class="stat-val negative">$${staffCost}/день</span></div>
+    <div class="stat-row"><span class="stat-label">📢 Реклама</span><span class="stat-val negative">$${gs.marketingBudget}/день</span></div>
+    <div class="stat-row"><span class="stat-label">🧾 Налоги</span><span class="stat-val">${(gs.taxes*100).toFixed(0)}% с продаж</span></div>
+    <div class="stat-row"><span class="stat-label">📊 Инфляция</span><span class="stat-val">${((gs.inflation-1)*100).toFixed(1)}%</span></div>
+  `;
+  document.getElementById('loan-amount').textContent = `$${gs.loanAmount.toFixed(2)}`;
+}
+
+function takeLoan(amount) {
+  gs.takeLoan(amount);
+  renderFinanceTab();
+  renderNotifications();
+  updateHUD();
+}
+
+function repayLoan() {
+  gs.repayLoan(1000);
+  renderFinanceTab();
+  renderNotifications();
+  updateHUD();
+}
+
+// -------- STATS TAB --------
+function renderStatsTab() {
+  const s = gs.stats;
+  document.getElementById('stats-panel').innerHTML = `
+    <div class="stat-row"><span class="stat-label">📦 Всего продаж</span><span class="stat-val">${s.totalSales.toLocaleString()}</span></div>
+    <div class="stat-row"><span class="stat-label">👥 Всего клиентов</span><span class="stat-val">${s.totalCustomers.toLocaleString()}</span></div>
+    <div class="stat-row"><span class="stat-label">💵 Общая выручка</span><span class="stat-val positive">$${s.totalRevenue.toFixed(2)}</span></div>
+    <div class="stat-row"><span class="stat-label">📉 Общие расходы</span><span class="stat-val negative">$${s.totalExpenses.toFixed(2)}</span></div>
+    <div class="stat-row"><span class="stat-label">🚨 Кражи</span><span class="stat-val ${s.thefts > 0 ? 'negative' : ''}">${s.thefts}</span></div>
+    <div class="stat-row"><span class="stat-label">🔍 Проверок</span><span class="stat-val">${s.inspections}</span></div>
+    <div class="stat-row"><span class="stat-label">📅 Дней в бизнесе</span><span class="stat-val">${s.daysPlayed}</span></div>
+    <div class="stat-row"><span class="stat-label">🏪 Сеть магазинов</span><span class="stat-val">${gs.chainStores}</span></div>
+    <div class="stat-row"><span class="stat-label">⭐ Репутация</span><span class="stat-val">${gs.reputation.toFixed(1)}/100</span></div>
+  `;
+
+  const skillIcons = { trade:'📦', marketing:'📢', logistics:'🚛', hr:'👥', finance:'💰' };
+  const skillNames = { trade:'Торговля', marketing:'Маркетинг', logistics:'Логистика', hr:'Управление людьми', finance:'Финансы' };
+  document.getElementById('skills-panel').innerHTML = Object.entries(gs.skills).map(([k, v]) => `
+    <div class="skill-item">
+      <div>
+        <div class="skill-name">${skillIcons[k]} ${skillNames[k]}</div>
+        <div class="progress-bar"><div class="progress-fill ${k==='trade'?'gold':k==='marketing'?'blue':k==='finance'?'green':'red'}" style="width:${v}%"></div></div>
+      </div>
+      <div class="skill-pct">${v}%</div>
+    </div>
+  `).join('');
+}
+
+// -------- NOTIFICATIONS --------
+function renderNotifications() {
+  const container = document.getElementById('notif-container');
+  const notifs = gs.notifications;
+
+  // Add new ones
+  notifs.forEach(n => {
+    if (!document.getElementById(`notif-${n.id}`)) {
+      const el = document.createElement('div');
+      el.id = `notif-${n.id}`;
+      el.className = `notif ${n.type}`;
+      el.textContent = n.msg;
+      container.appendChild(el);
+      setTimeout(() => { el.classList.add('fade-out'); setTimeout(() => el.remove(), 400); }, 3000);
+    }
+  });
+}
+
+// -------- SAVE --------
+async function saveGame() {
+  try {
+    await fetch('/api/save', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(gs.toJSON()) });
+  } catch(e) {}
+}
+
+// -------- START --------
+init();
+</script>
+</body>
+</html>
